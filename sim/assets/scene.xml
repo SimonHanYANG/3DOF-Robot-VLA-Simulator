@@ -1,135 +1,98 @@
-<!-- Main scene: 3DOF push-object obstacle-avoidance platform -->
-<mujoco model="3dof_push_scene">
+<!-- UR5e pick-and-place scene with parallel jaw gripper -->
+<mujoco model="ur5_pickplace_scene">
+  <include file="ur5e/ur5e.xml"/>
 
-  <option gravity="0 0 -9.81" timestep="0.002"/>
-
-  <!-- Default classes -->
   <default>
-    <default class="arm">
-      <geom type="box" material="arm_mat"/>
-      <joint type="slide" damping="5"/>
+    <default class="table">
+      <geom rgba="0.76 0.7 0.65 1" contype="1" conaffinity="1"/>
     </default>
   </default>
 
-  <asset>
-    <!-- Table surface texture -->
-    <texture name="table_tex" type="2d" builtin="checker"
-             rgb1="0.85 0.85 0.85" rgb2="0.75 0.75 0.75"
-             width="512" height="512"/>
-    <material name="table_mat" texture="table_tex" texrepeat="3 2" reflectance="0.1"/>
-    <material name="arm_mat" rgba="0.3 0.3 0.4 1"/>
-    <!-- Cone mesh (MuJoCo has no native cone geom) -->
-    <mesh name="cone_mesh" file="cone.obj"/>
-  </asset>
-
   <worldbody>
-    <!-- Lighting -->
-    <light pos="0 0 2" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
-    <light pos="0.5 0.5 1.5" dir="-0.3 -0.3 -1" diffuse="0.4 0.4 0.4"/>
+    <!-- Table surface -->
+    <geom name="table" type="box" pos="0.4 0 0.79" size="0.4 0.4 0.02"
+          class="table"/>
 
-    <!-- Table (static ground) -->
-    <geom name="table" type="box" pos="0 0 0" size="0.6 0.4 0.01"
-          material="table_mat" contype="1" conaffinity="1"/>
-
-    <!-- Invisible walls to keep objects on table -->
-    <geom name="wall_xp" type="box" pos="0.61 0 0.03" size="0.01 0.42 0.03"
+    <!-- Invisible walls -->
+    <geom name="wall_xp" type="box" pos="0.81 0 0.82" size="0.01 0.41 0.03"
           rgba="0 0 0 0" contype="1" conaffinity="1"/>
-    <geom name="wall_xn" type="box" pos="-0.61 0 0.03" size="0.01 0.42 0.03"
+    <geom name="wall_xn" type="box" pos="-0.01 0 0.82" size="0.01 0.41 0.03"
           rgba="0 0 0 0" contype="1" conaffinity="1"/>
-    <geom name="wall_yp" type="box" pos="0 0.41 0.03" size="0.62 0.01 0.03"
+    <geom name="wall_yp" type="box" pos="0.4 0.41 0.82" size="0.42 0.01 0.03"
           rgba="0 0 0 0" contype="1" conaffinity="1"/>
-    <geom name="wall_yn" type="box" pos="0 -0.41 0.03" size="0.62 0.01 0.03"
+    <geom name="wall_yn" type="box" pos="0.4 -0.41 0.82" size="0.42 0.01 0.03"
           rgba="0 0 0 0" contype="1" conaffinity="1"/>
 
-    <!-- ========== 3DOF ARM ========== -->
-    <body name="base" pos="0 0 0.06">
-      <geom name="base_geom" type="box" size="0.06 0.06 0.05"
-            class="arm" contype="0" conaffinity="0"/>
+    <!-- Gripper body (welded to wrist_3_link) -->
+    <body name="gripper_base" pos="0 0 0">
+      <freejoint/>
+      <site name="gripper_weld_site" pos="0 0 0" size="0.002" rgba="1 0 0 0.5"/>
+      <!-- Wrist camera (facing -Z in gripper frame = approach direction) -->
+      <camera name="wrist_cam" pos="0.03 0.02 -0.04" xyaxes="0 -1 0 0 0 -1" fovy="70"/>
 
-      <!-- X slider -->
-      <body name="x_stage" pos="0 0 0.05">
-        <joint name="slide_x" class="arm" range="-0.5 0.5"/>
-        <geom name="x_rail" type="box" size="0.08 0.02 0.02"
-              class="arm" contype="0" conaffinity="0"/>
+      <!-- Palm -->
+      <geom name="palm_geom" type="box" size="0.015 0.025 0.008"
+            rgba="0.3 0.3 0.35 1" contype="0" conaffinity="0"/>
 
-        <!-- Y slider -->
-        <body name="y_stage" pos="0 0 0.02">
-          <joint name="slide_y" class="arm" axis="0 1 0" range="-0.3 0.3"/>
-          <geom name="y_rail" type="box" size="0.02 0.08 0.02"
-                class="arm" contype="0" conaffinity="0"/>
+      <!-- Left finger (+X direction) -->
+      <body name="finger_left" pos="0.02 0 -0.025">
+        <joint name="finger_left_joint" type="slide" axis="1 0 0"
+               range="0 0.045" damping="5"/>
+        <geom name="finger_left_geom" type="box" size="0.004 0.008 0.02"
+              rgba="0.3 0.3 0.35 1" friction="1.0 0.005 0.001"
+              contype="1" conaffinity="1"/>
+      </body>
 
-          <!-- Z slider -->
-          <body name="z_stage" pos="0 0 0.02">
-            <joint name="slide_z" class="arm" axis="0 0 1" range="0.0 0.4"/>
-            <geom name="z_rail" type="box" size="0.015 0.015 0.06"
-                  class="arm" contype="0" conaffinity="0"/>
-
-            <!-- Push plate (must collide with objects) -->
-            <body name="push_plate" pos="0 0 -0.06">
-              <geom name="plate_geom" type="box" size="0.02 0.02 0.0025"
-                    material="arm_mat" friction="0.8 0.01 0.01"
-                    contype="1" conaffinity="1"/>
-            </body>
-          </body>
-        </body>
+      <!-- Right finger (-X direction) -->
+      <body name="finger_right" pos="-0.02 0 -0.025">
+        <joint name="finger_right_joint" type="slide" axis="-1 0 0"
+               range="0 0.045" damping="5"/>
+        <geom name="finger_right_geom" type="box" size="0.004 0.008 0.02"
+              rgba="0.3 0.3 0.35 1" friction="1.0 0.005 0.001"
+              contype="1" conaffinity="1"/>
       </body>
     </body>
 
-    <!-- ========== PUSHABLE OBJECTS ========== -->
-    <!-- Red sphere -->
-    <body name="obj_sphere" pos="0 0 0.03">
-      <freejoint/>
-      <geom name="sphere_geom" type="sphere" size="0.02"
-            rgba="0.9 0.2 0.2 1" mass="0.05" friction="0.8 0.01 0.01"/>
-    </body>
-
-    <!-- Blue cube -->
-    <body name="obj_cube" pos="0.1 0.1 0.03">
+    <!-- Objects -->
+    <body name="obj_cube" pos="0.3 0.1 0.83">
       <freejoint/>
       <geom name="cube_geom" type="box" size="0.02 0.02 0.02"
-            rgba="0.2 0.2 0.9 1" mass="0.08" friction="0.8 0.01 0.01"/>
+            rgba="0.9 0.2 0.2 1" mass="0.1" friction="0.8 0.01 0.01"/>
     </body>
 
-    <!-- Green cone (mesh) -->
-    <body name="obj_cone" pos="-0.1 0.1 0.03">
+    <body name="obj_sphere" pos="0.5 -0.1 0.815">
       <freejoint/>
-      <geom name="cone_geom" type="mesh" mesh="cone_mesh"
-            rgba="0.2 0.8 0.2 1" mass="0.06" friction="0.8 0.01 0.01"/>
+      <geom name="sphere_geom" type="sphere" size="0.025"
+            rgba="0.2 0.8 0.2 1" mass="0.08" friction="0.8 0.01 0.01"/>
     </body>
 
-    <!-- ========== FIXED OBSTACLES ========== -->
-    <body name="obstacle_1" pos="0.15 0.10 0.05">
-      <geom name="obs_1" type="cylinder" size="0.03 0.05"
-            rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
-    </body>
-    <body name="obstacle_2" pos="-0.20 -0.08 0.05">
-      <geom name="obs_2" type="cylinder" size="0.03 0.05"
-            rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
-    </body>
-    <body name="obstacle_3" pos="0.05 -0.15 0.05">
-      <geom name="obs_3" type="cylinder" size="0.03 0.05"
-            rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
-    </body>
-    <body name="obstacle_4" pos="-0.10 0.18 0.05">
-      <geom name="obs_4" type="cylinder" size="0.03 0.05"
-            rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
+    <body name="obj_cylinder" pos="0.4 0.2 0.83">
+      <freejoint/>
+      <geom name="cylinder_geom" type="cylinder" size="0.015 0.03"
+            rgba="0.2 0.2 0.9 1" mass="0.12" friction="0.8 0.01 0.01"/>
     </body>
 
-    <!-- Target body for angle camera -->
-    <body name="table_center" pos="0 0 0.01">
+    <!-- Target marker -->
+    <site name="target_marker" pos="0.5 0 0.82" size="0.015"
+          rgba="1 1 0 0.5" type="sphere"/>
+
+    <!-- Cameras -->
+    <body name="table_center" pos="0.4 0 0.8">
       <geom size="0.001" rgba="0 0 0 0" contype="0" conaffinity="0"/>
     </body>
-
-    <!-- ========== CAMERAS ========== -->
-    <camera name="top_cam" pos="0 0 0.8" xyaxes="1 0 0 0 1 0" fovy="90"/>
-    <camera name="angle_cam" pos="0.4 -0.4 0.5" target="table_center" fovy="60"/>
+    <camera name="top_cam" pos="0.4 0 1.5" target="table_center" fovy="60"/>
   </worldbody>
 
-  <!-- ========== ACTUATORS ========== -->
+  <equality>
+    <weld site1="attachment_site" site2="gripper_weld_site" solref="0.01 1"/>
+  </equality>
+
   <actuator>
-    <position name="act_x" joint="slide_x" kp="100" forcerange="-50 50"/>
-    <position name="act_y" joint="slide_y" kp="100" forcerange="-50 50"/>
-    <position name="act_z" joint="slide_z" kp="100" forcerange="-50 50"/>
+    <!-- Gripper actuators (two separate, command symmetrically from Python) -->
+    <position name="gripper_left" joint="finger_left_joint"
+              kp="50" ctrlrange="0 0.045"/>
+    <position name="gripper_right" joint="finger_right_joint"
+              kp="50" ctrlrange="0 0.045"/>
   </actuator>
 
 </mujoco>

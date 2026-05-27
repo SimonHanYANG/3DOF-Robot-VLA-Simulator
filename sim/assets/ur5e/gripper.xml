@@ -1,0 +1,38 @@
+<!-- Simplified parallel jaw gripper for UR5e -->
+<!-- Attached to wrist_3_link via attachment_site -->
+<!-- Gripper local frame: X = finger spread direction, Z = approach (same as site) -->
+<mujoco model="gripper">
+  <default>
+    <default class="gripper">
+      <geom rgba="0.3 0.3 0.35 1" contype="1" conaffinity="1"/>
+      <joint damping="5"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <body name="gripper_base" pos="0 0 0" quat="0.707 0 0 0.707">
+      <!-- Rotate 90deg about Z so fingers spread along X → site Y direction -->
+
+      <!-- Palm plate -->
+      <geom name="palm" type="box" size="0.015 0.025 0.008"
+            class="gripper" contype="0" conaffinity="0"/>
+
+      <!-- Left finger (+X) -->
+      <body name="finger_left" pos="0.02 0 -0.025">
+        <joint name="finger_left_joint" type="slide" axis="1 0 0"
+               range="0 0.045" class="gripper"/>
+        <geom name="finger_left_geom" type="box" size="0.004 0.008 0.02"
+              friction="1.0 0.005 0.001" class="gripper"/>
+      </body>
+
+      <!-- Right finger (-X), mimics left -->
+      <body name="finger_right" pos="-0.02 0 -0.025">
+        <joint name="finger_right_joint" type="slide" axis="-1 0 0"
+               range="0 0.045" class="gripper"
+               mimic="finger_left_joint" coef="-1"/>
+        <geom name="finger_right_geom" type="box" size="0.004 0.008 0.02"
+              friction="1.0 0.005 0.001" class="gripper"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
