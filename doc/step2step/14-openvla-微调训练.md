@@ -2,191 +2,154 @@
 
 **状态**：🔴 未开始
 **阶段**：五、VLA 模型训练
-**依赖**：S13（OpenVLA 格式数据集就绪）+ S12（训练基础设施就绪）
+**依赖**：S12（OpenVLA 格式数据集就绪）
 
 ## 目标
-加载 OpenVLA 预训练权重，在自定义推动数据集上进行微调（LoRA 或全参微调），保存可用的模型 checkpoint。
+加载 OpenVLA 预训练权重，在自采集取放数据集上进行 LoRA 微调，适配 7D 动作空间。保存可用的模型 checkpoint。
 
 ## 前置条件
-- S13 完成：OpenVLA 格式数据集（HuggingFace datasets 或 RLDS）已生成
-- S12 完成：GPU 环境、transformers/peft/accelerate 已安装
+- S12 完成：OpenVLA 格式数据集已转换
+- GPU 环境、transformers/peft/accelerate 已安装
 
 ## 实现细节
 
-### 1. OpenVLA 模型概述
+### 1. 7D 动作离散化
 
-OpenVLA 是 Stanford 等机构提出的开源 VLA 模型，架构为：
-- **视觉编码器**：SigLIP（或 DINOv2）将图像编码为视觉 token
-- **语言模型**：Llama-2（或类似）处理指令文本 + 视觉 token
-- **动作解码**：输出离散动作 token，解码为末端增量位移
+OpenVLA 使用离散 action token。7D 动作的编码策略：
 
-本步骤基于 OpenVLA 官方仓库的预训练权重做领域微调。
+| 维度 | 含义 | 范围 | 编码方式 |
+|------|------|------|----------|
+| dx | 位置 X | ±0.02m | 256 bins |
+| dy | 位置 Y | ±0.02m | 256 bins |
+| dz | 位置 Z | ±0.02m | 256 bins |
+| droll | 旋转 Roll | ±0.1rad | 256 bins |
+| dpitch | 旋转 Pitch | ±0.1rad | 256 bins |
+| dyaw | 旋转 Yaw | ±0.1rad | 256 bins |
+| gripper | 夹爪 | 0/1 | 2 bins（二值） |
 
-### 2. 加载预训练模型
+总计：6 × 256 + 2 = 1538 个 action tokens
+
+### 2. 动作编解码
 
 ```python
-# models/training/openvla_train.py
-from transformers import AutoModel, AutoProcessor
-# OpenVLA 通常通过 HuggingFace Hub 加载
-# 具体加载方式取决于 OpenVLA 官方发布的接口
+def encode_action_7d(action: np.ndarray, num_bins=256) -> np.ndarray:
+    """7D 连续动作 → 离散 bin IDs"""
+    bins = np.zeros(7, dtype=np.int64)
+    # 前 6 维：连续值 → bin
+    ranges = [(-0.02, 0.02)] * 3 + [(-0.1, 0.1)] * 3
+    for i in range(6):
+        lo, hi = ranges[i]
+        normalized = (action[i] - lo) / (hi - lo)
+        bins[i] = np.clip(int(normalized * num_bins), 0, num_bins - 1)
+    # 第 7 维：gripper 二值化
+    bins[6] = 1 if action[6] > 0.5 else 0
+    return bins
 
-# 伪代码（实际取决于 OpenVLA 版本）
-from openvla import OpenVLAModel, OpenVLAProcessor
-
-model = OpenVLAModel.from_pretrained("openvla/openvla-7b")  # 或本地路径
-processor = OpenVLAProcessor.from_pretrained("openvla/openvla-7b")
+def decode_action_7d(bins: np.ndarray, num_bins=256) -> np.ndarray:
+    """离散 bin IDs → 7D 连续动作"""
+    action = np.zeros(7)
+    ranges = [(-0.02, 0.02)] * 3 + [(-0.1, 0.1)] * 3
+    for i in range(6):
+        lo, hi = ranges[i]
+        action[i] = lo + (bins[i] / num_bins) * (hi - lo)
+    action[6] = 1.0 if bins[6] > 0.5 else 0.0
+    return action
 ```
 
-### 3. 自定义数据集注入
+### 3. LoRA 微调配置
 
 ```python
-class PushDataset(torch.utils.data.Dataset):
-    """为 OpenVLA 微调准备的自定义数据集"""
+lora_config = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
+    bias="none",
+)
+```
 
-    def __init__(self, data_path: str, processor, split: str = "train"):
-        self.dataset = datasets.load_from_disk(data_path)[split]
+### 4. 数据集类
+
+```python
+class OpenVLAPickPlaceDataset(torch.utils.data.Dataset):
+    """OpenVLA 微调用取放数据集"""
+
+    def __init__(self, data_path, processor, num_bins=256):
+        self.dataset = datasets.load_from_disk(data_path)
         self.processor = processor
+        self.num_bins = num_bins
 
     def __getitem__(self, idx):
         sample = self.dataset[idx]
-        # 处理图像
-        image = sample["image"]  # PIL Image
-        # 处理指令
+        image = sample["image"]           # PIL Image
         instruction = sample["instruction"]
-        # 处理动作（离散 bin IDs）
-        action_bins = sample["action_bins"]  # 或连续值需在线离散化
-        # 拼接为模型输入格式
+        action_bins = sample["action_bins"]  # (7,) 离散 bin IDs
+
         inputs = self.processor(
             images=image,
             text=instruction,
-            actions=action_bins,  # 训练时的标签
             return_tensors="pt",
         )
-        return inputs
-
-    def __len__(self):
-        return len(self.dataset)
+        return {
+            "input_ids": inputs.input_ids,
+            "attention_mask": inputs.attention_mask,
+            "pixel_values": inputs.pixel_values,
+            "labels": torch.tensor(action_bins),
+        }
 ```
 
-### 4. LoRA 微调配置
-
-使用 HuggingFace `peft` 库对 LLM 部分做 LoRA 微调（视觉编码器通常冻结）：
+### 5. 训练配置
 
 ```python
-from peft import LoraConfig, get_peft_model, TaskType
-
-lora_config = LoraConfig(
-    task_type=TaskType.CAUSAL_LM,
-    r=16,                    # LoRA rank
-    lora_alpha=32,           # LoRA alpha 缩放
-    lora_dropout=0.05,
-    target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],  # Llama 的注意力层
-    bias="none",
-)
-
-model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()  # 检查可训练参数量（通常 < 1% 总参数）
-```
-
-### 5. 训练循环
-
-```python
-from transformers import Trainer, TrainingArguments
-from accelerate import Accelerator
-
 training_args = TrainingArguments(
-    output_dir="models/checkpoints/openvla/run_xxx",
-    num_train_epochs=10,               # 微调通常不需要太多 epoch
-    per_device_train_batch_size=4,      # 根据 GPU 显存调整
-    per_device_eval_batch_size=4,
-    gradient_accumulation_steps=4,     # 等效 batch_size=16
-    learning_rate=2e-5,                # LoRA 微调用较小学习率
+    output_dir="models/checkpoints/openvla-pickplace",
+    num_train_epochs=10,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,  # 等效 batch_size=16
+    learning_rate=2e-5,
     weight_decay=0.01,
     warmup_ratio=0.03,
     lr_scheduler_type="cosine",
     logging_steps=10,
     save_steps=500,
-    eval_steps=500,
-    save_total_limit=3,                # 最多保留 3 个 checkpoint
-    bf16=True,                         # 或 fp16
-    dataloader_num_workers=4,
+    bf16=True,
     report_to="wandb",
-    run_name="openvla-push-lora",
+    run_name="openvla-pickplace-lora",
 )
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=val_dataset,
-    data_collator=data_collator,
-)
-trainer.train()
 ```
 
-### 6. 损失函数
-
-OpenVLA 使用交叉熵损失（动作 token 分类）：
-- 模型输出动作 token 的 logits
-- 与真实 bin ID 计算 cross-entropy
-- 监督信号仅作用于动作 token 位置
-
-若需要更精确的动作预测，可在离散 token 之上添加回归头直接预测连续值（L2 loss），但会增加实现复杂度。
-
-### 7. 评估指标
+### 6. 评估指标
 
 ```python
-# utils/metrics.py
-def evaluate_action_accuracy(pred_bins, true_bins, num_bins=256):
-    """动作 token 准确率"""
-    return (pred_bins == true_bins).mean()
+def evaluate_action_accuracy(pred_bins, true_bins):
+    """各维度 token 准确率"""
+    return (pred_bins == true_bins).float().mean(dim=0)  # (7,) 每维度准确率
 
-def evaluate_position_error(pred_actions, true_actions):
-    """将预测的动作 bin 解码后计算每轴 MAE"""
-    # 将 bin 还原为连续值
-    pred_cont = bins_to_continuous(pred_actions)
-    true_cont = bins_to_continuous(true_actions)
-    return np.abs(pred_cont - true_cont).mean(axis=0)  # (dx_mae, dy_mae, dz_mae)
-```
-
-### 8. 动作解码
-
-训练后推理时，需要将模型输出的离散 token 解码为连续动作：
-
-```python
-def decode_action_tokens(token_ids: list[int], action_dim=3, num_bins=256):
-    """将离散 token ID 序列解码为 (dx, dy, dz)"""
-    bins_per_dim = len(token_ids) // action_dim
-    actions = []
-    for i in range(action_dim):
-        dim_tokens = token_ids[i * bins_per_dim : (i+1) * bins_per_dim]
-        # 多数投票或加权平均
-        bin_id = max(set(dim_tokens), key=dim_tokens.count)
-        value = (bin_id / num_bins) * 0.04 - 0.02  # [-0.02, 0.02]
-        actions.append(value)
-    return np.array(actions)
+def evaluate_continuous_error(pred_actions, true_actions):
+    """连续动作 MAE"""
+    return torch.abs(pred_actions - true_actions).mean(dim=0)  # (7,) 每维度 MAE
 ```
 
 ## 关键文件
 | 文件 | 说明 |
 |------|------|
 | `models/training/openvla_train.py` | OpenVLA 微调训练脚本 |
-| `models/training/configs/openvla_config.yaml` | Hydra 训练配置 |
-| `models/training/utils/openvla_utils.py` | OpenVLA 专用工具（动作编解码等） |
+| `models/training/openvla_model.py` | 模型加载和适配 |
+| `models/training/configs/openvla_config.yaml` | 训练配置 |
+| `models/training/utils/openvla_utils.py` | 动作编解码工具 |
 
 ## 验证标准
 - [ ] OpenVLA 预训练模型成功加载到 GPU
-- [ ] 自定义数据集被正确加载和预处理
-- [ ] LoRA 微调后训练 loss 稳定下降
-- [ ] 验证集动作准确率 > 50%（在离散化的 256 bins 中随机猜测 ≈ 0.4%）
-- [ ] 训练过程中无 OOM（显存溢出）
-- [ ] checkpoint 可正常保存和重新加载
-- [ ] 加载 checkpoint 后可完成单步推理（S17 的推理接口验证）
-- [ ] WandB 上可看到完整的 loss 曲线和评估指标
+- [ ] 自定义数据集正确加载，7D action_bins 格式正确
+- [ ] LoRA 微调后训练 loss 下降
+- [ ] 验证集动作 token 准确率 > 30%（6D 连续 + 1D 二值）
+- [ ] 无 OOM
+- [ ] checkpoint 可保存和重新加载
+- [ ] WandB 显示 loss 曲线
 
 ## 注意事项
-- OpenVLA 7B 模型显存需求：约 14GB（bf16），加上优化器状态和中间激活约需 24GB。若显存不足，减小 batch_size 并增大 gradient_accumulation_steps
-- LoRA rank 的选择：r=8（更轻量）到 r=64（更强表达能力），r=16 是常用折中
-- 训练数据不够多时（< 5k 轨迹），建议增大 LoRA dropout 或减少训练 epoch 防止过拟合
-- 确保视觉编码器的预处理（归一化、尺寸等）与 OpenVLA 官方预训练时的设置完全一致
-- 首次训练建议在 100-500 步后观察 loss 是否下降，若不下降则检查学习率和数据格式
+- OpenVLA 7B 模型 bf16 约需 14GB 显存，加上优化器约需 24GB
+- gripper 维度只有 2 个 bin，训练初期准确率可能很高（多数样本 gripper=开）
+- 视觉编码器的预处理需与 OpenVLA 官方完全一致
+- 首次训练建议跑 100 步观察 loss 是否下降
