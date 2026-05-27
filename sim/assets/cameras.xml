@@ -1,0 +1,12 @@
+<!-- Camera sensors -->
+<sensor>
+  <!-- Top-down camera: covers entire table -->
+  <camera name="top_cam" pos="0 0 0.8" xyaxes="1 0 0 0 1 0" fovy="90" resolution="224 224"/>
+  <!-- 45-degree angle camera -->
+  <camera name="angle_cam" pos="0.4 -0.4 0.5" target="table_center" fovy="60" resolution="224 224"/>
+</sensor>
+
+<!-- Target body for angle_cam to look at -->
+<body name="table_center" pos="0 0 0.01">
+  <geom size="0.001" rgba="0 0 0 0" contype="0" conaffinity="0"/>
+</body>

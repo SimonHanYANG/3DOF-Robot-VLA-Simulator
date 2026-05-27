@@ -1,0 +1,20 @@
+<!-- Fixed obstacles: 4 yellow semi-transparent cylinders -->
+<body name="obstacle_1" pos="0.15 0.10 0.05">
+  <geom name="obs_1" type="cylinder" size="0.03 0.05"
+        rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
+</body>
+
+<body name="obstacle_2" pos="-0.20 -0.08 0.05">
+  <geom name="obs_2" type="cylinder" size="0.03 0.05"
+        rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
+</body>
+
+<body name="obstacle_3" pos="0.05 -0.15 0.05">
+  <geom name="obs_3" type="cylinder" size="0.03 0.05"
+        rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
+</body>
+
+<body name="obstacle_4" pos="-0.10 0.18 0.05">
+  <geom name="obs_4" type="cylinder" size="0.03 0.05"
+        rgba="1.0 1.0 0.0 0.6" contype="1" conaffinity="1"/>
+</body>

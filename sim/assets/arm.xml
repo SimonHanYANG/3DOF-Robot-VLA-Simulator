@@ -1,0 +1,36 @@
+<!-- 3DOF XYZ linear slide arm with push plate -->
+<default>
+  <default class="arm">
+    <geom type="box" material="arm_mat"/>
+    <joint type="slide" damping="5" stiffness="0"/>
+  </default>
+</default>
+
+<!-- Fixed base at world origin -->
+<body name="base" pos="0 0 0.05">
+  <geom name="base_geom" type="box" size="0.06 0.06 0.05" class="arm"/>
+
+  <!-- X slider (axis defaults to X) -->
+  <body name="x_stage" pos="0 0 0.05">
+    <joint name="slide_x" class="arm" range="-0.5 0.5"/>
+    <geom name="x_rail" type="box" size="0.08 0.02 0.02" class="arm"/>
+
+    <!-- Y slider (nested, axis defaults to X of local frame — which is world X since no rotation) -->
+    <body name="y_stage" pos="0 0 0.02">
+      <joint name="slide_y" class="arm" range="-0.3 0.3"/>
+      <geom name="y_rail" type="box" size="0.02 0.08 0.02" class="arm"/>
+
+      <!-- Z slider (vertical) -->
+      <body name="z_stage" pos="0 0 0.02">
+        <joint name="slide_z" class="arm" range="0.0 0.4"/>
+        <geom name="z_rail" type="box" size="0.015 0.015 0.06" class="arm"/>
+
+        <!-- Push plate at end of Z axis -->
+        <body name="push_plate" pos="0 0 -0.06">
+          <geom name="plate_geom" type="box" size="0.02 0.02 0.0025"
+                material="arm_mat" friction="0.8 0.01 0.01"/>
+        </body>
+      </body>
+    </body>
+  </body>
+</body>
