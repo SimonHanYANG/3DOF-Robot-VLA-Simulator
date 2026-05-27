@@ -1,0 +1,25 @@
+# Simulation core
+mujoco>=3.1.0,<4.0.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Planning algorithms
+scipy>=1.11.0
+
+# Backend service
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+
+# Data processing
+h5py>=3.10.0
+
+# Deep learning — install with correct CUDA version from pytorch.org
+# torch>=2.1.0
+# jax / jaxlib — install when training pi0
+# transformers — install when training OpenVLA
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (large)
+data/raw/*.hdf5
+data/raw/*.h5
+data/processed/
+
+# Model checkpoints (large)
+models/checkpoints/*.pt
+models/checkpoints/*.bin
+models/checkpoints/*.safetensors
+
+# Logs
+*.log
+wandb/
+outputs/
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Testing
+.pytest_cache/
+
+# Environment
+.env
