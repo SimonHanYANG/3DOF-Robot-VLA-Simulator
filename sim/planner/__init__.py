@@ -1,1 +1,3 @@
-"""Path planning algorithms for push trajectories."""
+"""Path planning algorithms for pick-and-place trajectories."""
+
+from .grasp_planner import GraspPose, GraspPlanner
