@@ -66,7 +66,15 @@ def test_gripper_joints(model):
 
 def test_gripper_operates(model, data):
     """Gripper can open and close."""
+    from sim.controller import HOME_QPOS
+    qpos_idx = [model.joint(name).id for name in
+                ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+                 "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]]
+
     mujoco.mj_resetData(model, data)
+    for i, jid in enumerate(qpos_idx):
+        data.qpos[model.jnt_qposadr[jid]] = HOME_QPOS[i]
+    data.ctrl[:6] = HOME_QPOS
     data.ctrl[6] = 0.045  # open
     data.ctrl[7] = 0.045
     for _ in range(200):
@@ -74,6 +82,9 @@ def test_gripper_operates(model, data):
     left_open = data.joint("finger_left_joint").qpos[0]
 
     mujoco.mj_resetData(model, data)
+    for i, jid in enumerate(qpos_idx):
+        data.qpos[model.jnt_qposadr[jid]] = HOME_QPOS[i]
+    data.ctrl[:6] = HOME_QPOS
     data.ctrl[6] = 0.0  # close
     data.ctrl[7] = 0.0
     for _ in range(200):

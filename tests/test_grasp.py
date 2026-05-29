@@ -12,12 +12,12 @@ from sim.planner.grasp_planner import (
 
 # Object positions from scene.xml
 OBJ_PARAMS = {
-    "obj_cube": {"type": "cube", "pos": np.array([0.3, 0.1, 0.83]),
-                 "size": {"half_size": 0.02}},
-    "obj_sphere": {"type": "sphere", "pos": np.array([0.5, -0.1, 0.815]),
-                   "size": {"radius": 0.025}},
-    "obj_cylinder": {"type": "cylinder", "pos": np.array([0.4, 0.2, 0.83]),
-                     "size": {"radius": 0.015, "half_height": 0.03}},
+    "obj_cube": {"type": "cube", "pos": np.array([0.3, 0.1, 0.842]),
+                 "size": {"half_size": 0.03}},
+    "obj_sphere": {"type": "sphere", "pos": np.array([0.5, -0.1, 0.845]),
+                   "size": {"radius": 0.035}},
+    "obj_cylinder": {"type": "cylinder", "pos": np.array([0.4, 0.2, 0.85]),
+                     "size": {"radius": 0.025, "half_height": 0.05}},
 }
 
 TABLE_Z = 0.81  # table surface

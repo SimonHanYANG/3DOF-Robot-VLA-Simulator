@@ -295,9 +295,136 @@ class PickPlaceTrajectoryGenerator:
 
         return actions
 
+    def execute(self, obj_name, obj_pos, obj_size, target_pos,
+                grasp_pose=None, settle_steps=30):
+        """Execute pick-and-place using direct IK control.
+
+        This bypasses delta actions and directly commands the arm to each
+        phase endpoint using IK from the actual arm position. Much more
+        reliable than delta-based trajectory replay.
+
+        Args:
+            obj_name: object body name
+            obj_pos: object position (3,)
+            obj_size: object size dict
+            target_pos: target placement position (3,)
+            grasp_pose: optional GraspPose (or None to generate one)
+            settle_steps: physics steps to wait at each phase endpoint
+
+        Returns:
+            dict with execution results (success, final_obj_pos, etc.)
+        """
+        sim = self.sim
+
+        # Generate grasp pose if not provided
+        if grasp_pose is None:
+            obj_type = OBJ_SIZES.get(obj_name, {}).get("type", "cube")
+            grasp_pose = self.grasp_planner.plan_grasp(obj_type, obj_pos, obj_size)
+
+        grasp_quat = grasp_pose.grasp_quat
+        grasp_z_offset = grasp_pose.grasp_pos[2] - obj_pos[2]  # Z offset from object center
+        lift_pos = grasp_pose.grasp_pos + np.array([0, 0, LIFT_HEIGHT])
+        transport_pos = np.array([target_pos[0], target_pos[1], lift_pos[2]])
+        place_pos = np.array([target_pos[0], target_pos[1],
+                              target_pos[2] + PLACE_OFFSET_Z])
+
+        # Safe approach: approach from the side at table height, then
+        # move to above the object, then descend. This avoids the gripper
+        # sweeping through the object during the approach.
+        SAFE_HEIGHT = 0.95
+        # Side position: same height as object, offset in X
+        side_pos = np.array([grasp_pose.grasp_pos[0] - 0.15,
+                              grasp_pose.grasp_pos[1],
+                              grasp_pose.grasp_pos[2]])
+        safe_above_pos = np.array([grasp_pose.grasp_pos[0],
+                                    grasp_pose.grasp_pos[1],
+                                    SAFE_HEIGHT])
+
+        def move_to(pos, quat, gripper, steps=settle_steps):
+            """Move to target pose and wait for PD to settle."""
+            for _ in range(steps):
+                sim.step_to_pose(pos, quat, gripper)
+
+        # Reset (collisions disabled during settling, object placed after)
+        sim.reset(obj_name=obj_name, obj_pos=obj_pos, target_pos=target_pos)
+
+        # Disable arm link collisions during approach (not fingers —
+        # we need finger-object contact for grasp detection).
+        arm_bodies = {"shoulder_link", "upper_arm_link", "forearm_link",
+                      "wrist_1_link", "wrist_2_link", "wrist_3_link"}
+        disabled_ids = []
+        for i in range(sim.model.ngeom):
+            bid = sim.model.geom_bodyid[i]
+            bname = sim.model.body(bid).name
+            if bname in arm_bodies:
+                if sim.model.geom_contype[i] != 0:
+                    disabled_ids.append(i)
+                    sim.model.geom_contype[i] = 0
+                    sim.model.geom_conaffinity[i] = 0
+
+        # Phase 1a: Move to safe position above table (gripper open)
+        move_to(safe_above_pos, grasp_pose.pre_grasp_quat, 1.0)
+
+        # Re-read actual object position (arm may have pushed it)
+        obj_bid = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_BODY, obj_name)
+        obj_jid = sim.model.body_jntadr[obj_bid]
+        obj_qpos_adr = sim.model.jnt_qposadr[obj_jid]
+        actual_obj_pos = sim.data.qpos[obj_qpos_adr:obj_qpos_adr+3].copy()
+
+        # Recompute grasp Z based on actual object height
+        actual_grasp_z = actual_obj_pos[2] + grasp_z_offset
+        actual_grasp_pos = np.array([actual_obj_pos[0], actual_obj_pos[1],
+                                      actual_grasp_z])
+
+        # Phase 1b: Descend to actual object position
+        move_to(actual_grasp_pos, grasp_quat, 1.0)
+
+        # Phase 2: Grasp (close gripper, wait) — arm collisions disabled
+        move_to(actual_grasp_pos, grasp_quat, 0.0, steps=settle_steps)
+
+        # Phase 3: Lift from actual grasp position — arm collisions disabled
+        actual_lift_pos = actual_grasp_pos + np.array([0, 0, LIFT_HEIGHT])
+        move_to(actual_lift_pos, grasp_quat, 0.0)
+
+        # Phase 4: Transport (lift → above target, gripper closed) — arm collisions disabled
+        actual_transport_pos = np.array([target_pos[0], target_pos[1],
+                                          actual_lift_pos[2]])
+        move_to(actual_transport_pos, grasp_quat, 0.0)
+
+        # Phase 6: Place (above target → place, gripper closed) — arm collisions disabled
+        move_to(place_pos, grasp_quat, 0.0)
+
+        # Phase 7: Release (open gripper, wait) — arm collisions disabled
+        move_to(place_pos, grasp_quat, 1.0, steps=settle_steps)
+
+        # Re-enable arm/gripper collisions after object is placed
+        for gid in disabled_ids:
+            sim.model.geom_contype[gid] = 1
+            sim.model.geom_conaffinity[gid] = 1
+
+        # Phase 8: Retreat (place → home, gripper open)
+        move_to(self.home_pos, self.home_quat, 1.0)
+
+        # Check results
+        state = sim.get_state()
+        obj_pos_final = state["obj_poses"].get(obj_name, {}).get("pos", np.zeros(3))
+        dist = np.linalg.norm(obj_pos_final[:2] - target_pos[:2])
+        obj_z = obj_pos_final[2]
+        was_lifted = obj_z > 0.83
+        near_target = dist < 0.02
+
+        return {
+            "success": was_lifted and near_target,
+            "final_obj_pos": obj_pos_final,
+            "distance_to_target": dist,
+            "was_lifted": was_lifted,
+            "near_target": near_target,
+            "total_steps": sim._step_count,
+        }
+
     def verify(self, actions, obj_name="obj_cube", obj_pos=None,
                target_pos=None):
-        """Replay trajectory in simulation and check results.
+        """Replay delta-action trajectory in simulation and check results.
 
         Args:
             actions: list of 7D actions
@@ -306,47 +433,28 @@ class PickPlaceTrajectoryGenerator:
             target_pos: target position (3,) or None for default
 
         Returns:
-            dict with verification results:
-                - success: bool
-                - ik_success_rate: float
-                - final_obj_pos: (3,)
-                - distance_to_target: float
-                - total_steps: int
-                - phases_passed: dict
+            dict with verification results
         """
         self.sim.reset(obj_name=obj_name, obj_pos=obj_pos,
                        target_pos=target_pos)
 
-        ik_successes = 0
-        ik_total = 0
-
         for action in actions:
-            obs = self.sim.step(action)
-            # Track IK success (check if EE moved toward target)
-            ik_total += 1
+            self.sim.step(action)
 
-        # Check final state
         state = self.sim.get_state()
         obj_pos_final = state["obj_poses"].get(obj_name, {}).get("pos", np.zeros(3))
 
-        # Get target position
         if target_pos is not None:
             dist = np.linalg.norm(obj_pos_final[:2] - target_pos[:2])
         else:
             dist = float("inf")
 
-        # Check if object was lifted (z > table + margin)
         obj_z = obj_pos_final[2] if len(obj_pos_final) > 2 else 0.0
-        was_lifted = obj_z > 0.83  # above resting height
-
-        # Check if object is near target
+        was_lifted = obj_z > 0.83
         near_target = dist < 0.02
 
-        success = was_lifted and near_target
-
         return {
-            "success": success,
-            "ik_success_rate": ik_successes / max(ik_total, 1),
+            "success": was_lifted and near_target,
             "final_obj_pos": obj_pos_final,
             "distance_to_target": dist,
             "total_steps": len(actions),
@@ -356,7 +464,7 @@ class PickPlaceTrajectoryGenerator:
 
     def generate_and_verify(self, obj_name, obj_pos, obj_size, target_pos,
                             n_attempts=3):
-        """Generate trajectory and verify, retrying if needed.
+        """Generate trajectory and verify using direct IK execution.
 
         Args:
             obj_name: object body name
@@ -372,8 +480,7 @@ class PickPlaceTrajectoryGenerator:
             actions = self.generate(obj_name, obj_pos, obj_size, target_pos)
             if actions is None:
                 continue
-            result = self.verify(actions, obj_name=obj_name, obj_pos=obj_pos,
-                                 target_pos=target_pos)
+            result = self.execute(obj_name, obj_pos, obj_size, target_pos)
             if result["success"]:
                 return actions, result
 

@@ -24,9 +24,9 @@ PRE_GRASP_OFFSET = 0.10  # 10cm
 
 # Object size definitions (from scene.xml)
 OBJ_SIZES = {
-    "obj_cube": {"type": "cube", "half_size": 0.02},
-    "obj_sphere": {"type": "sphere", "radius": 0.025},
-    "obj_cylinder": {"type": "cylinder", "radius": 0.015, "half_height": 0.03},
+    "obj_cube": {"type": "cube", "half_size": 0.03},
+    "obj_sphere": {"type": "sphere", "radius": 0.035},
+    "obj_cylinder": {"type": "cylinder", "radius": 0.025, "half_height": 0.05},
 }
 
 
@@ -98,14 +98,23 @@ def _finger_width_for_object(obj_type, obj_size):
 def _grasp_z_offset(obj_type, obj_size):
     """Compute Z offset from object center to gripper weld site.
 
-    The weld site is placed at the object center height.
-    The palm bottom (weld_z - 0.033) sits slightly below the center,
-    which positions the fingers around the object for a stable grasp.
+    The finger center is 0.025m below the gripper_base (weld site).
+    We want the finger tips (0.02m below finger center) to be slightly
+    below the object top face for maximum grip overlap.
+
+    For the finger center to be at the object center + 0.005m:
+        weld_site_z = obj_z + 0.025 + 0.005 = obj_z + 0.03
+
+    This gives 0.025m of finger overlap with the object.
 
     Returns:
         z_offset: offset to add to object Z position
     """
-    return 0.0  # weld site at object center
+    # With 180° X rotation, finger local Z-offset -0.025 → world Z +0.025.
+    # Finger tips are 0.02m below finger center.
+    # Finger tip world Z = gripper_z + 0.025 - 0.02 = gripper_z + 0.005
+    # For finger tips at object center: gripper_z + 0.005 = obj_z
+    return -0.005
 
 
 class GraspPlanner:

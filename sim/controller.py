@@ -12,7 +12,7 @@ from .ik_solver import (
 ACTION_LOW = np.array([-0.02, -0.02, -0.02, -0.1, -0.1, -0.1, 0.0])
 ACTION_HIGH = np.array([0.02, 0.02, 0.02, 0.1, 0.1, 0.1, 1.0])
 
-HOME_QPOS = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0])
+HOME_QPOS = np.array([0.341609, -2.347910, 0.574560, -1.368243, -0.341605, 2.941593])
 
 OBJ_BODY_NAMES = ["obj_cube", "obj_sphere", "obj_cylinder"]
 GRIPPER_GEOMS = ["finger_left_geom", "finger_right_geom"]
@@ -50,7 +50,16 @@ class SimController:
         self.renderer.close()
 
     def reset(self, obj_name="obj_cube", obj_pos=None, target_pos=None):
-        """Reset scene: place object, set target, move arm to home."""
+        """Reset scene: place object, set target, move arm to home.
+
+        The reset sequence:
+        1. Clear simulation data
+        2. Set arm joints to HOME_QPOS
+        3. Use FK (mj_forward) to compute EE position
+        4. Pre-position gripper_base at EE (avoids weld sweep collision)
+        5. Place object
+        6. Set target marker and gripper control
+        """
         mujoco.mj_resetData(self.model, self.data)
 
         # Arm to home
@@ -58,7 +67,20 @@ class SimController:
             self.data.qpos[self.model.jnt_qposadr[jid]] = HOME_QPOS[i]
         self.data.ctrl[self.ctrl_arm_idx] = HOME_QPOS
 
-        # Object position
+        # Set gripper_base freejoint to EE position computed via FK.
+        # mj_forward updates fixed-body (wrist_3_link) position from
+        # joint angles. We copy that to the gripper's freejoint.
+        mujoco.mj_forward(self.model, self.data)
+        eef_pos = self.data.body(self.eef_id).xpos.copy()
+        eef_quat = self.data.body(self.eef_id).xquat.copy()
+        gripper_bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY,
+                                         "gripper_base")
+        gripper_jid = self.model.body_jntadr[gripper_bid]
+        gripper_qpos_adr = self.model.jnt_qposadr[gripper_jid]
+        self.data.qpos[gripper_qpos_adr:gripper_qpos_adr+3] = eef_pos
+        self.data.qpos[gripper_qpos_adr+3:gripper_qpos_adr+7] = eef_quat
+
+        # Place object
         if obj_name is not None:
             bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, obj_name)
             jid = self.model.body_jntadr[bid]
@@ -80,6 +102,19 @@ class SimController:
         mujoco.mj_forward(self.model, self.data)
         self._step_count = 0
 
+    def disable_collisions(self):
+        """Temporarily disable all collisions (e.g., during approach phase)."""
+        self._saved_contype = self.model.geom_contype.copy()
+        self._saved_conaffinity = self.model.geom_conaffinity.copy()
+        self.model.geom_contype[:] = 0
+        self.model.geom_conaffinity[:] = 0
+
+    def enable_collisions(self):
+        """Re-enable collisions after approach phase."""
+        if hasattr(self, '_saved_contype'):
+            self.model.geom_contype[:] = self._saved_contype
+            self.model.geom_conaffinity[:] = self._saved_conaffinity
+
     def step(self, action):
         """Execute one step with 7D action, return observation."""
         action = np.clip(action, ACTION_LOW, ACTION_HIGH)
@@ -96,6 +131,34 @@ class SimController:
 
         self.data.ctrl[self.ctrl_grip_left] = action[6] * GRIPPER_MAX
         self.data.ctrl[self.ctrl_grip_right] = action[6] * GRIPPER_MAX
+
+        for _ in range(self.substeps):
+            mujoco.mj_step(self.model, self.data)
+
+        self._step_count += 1
+        return self.get_obs()
+
+    def step_to_pose(self, target_pos, target_quat, gripper_cmd):
+        """Move EE to target pose via IK from actual position.
+
+        Unlike step() which uses Cartesian deltas, this computes IK directly
+        from the current arm state, avoiding drift accumulation.
+
+        Args:
+            target_pos: target EE position (3,)
+            target_quat: target EE quaternion (w,x,y,z)
+            gripper_cmd: gripper command (0.0=closed, 1.0=open)
+
+        Returns:
+            obs: observation dict
+        """
+        success, q_sol, info = solve_ik(self.model, self.data,
+                                         target_pos, target_quat)
+        if success:
+            self.data.ctrl[self.ctrl_arm_idx] = q_sol
+
+        self.data.ctrl[self.ctrl_grip_left] = gripper_cmd * GRIPPER_MAX
+        self.data.ctrl[self.ctrl_grip_right] = gripper_cmd * GRIPPER_MAX
 
         for _ in range(self.substeps):
             mujoco.mj_step(self.model, self.data)

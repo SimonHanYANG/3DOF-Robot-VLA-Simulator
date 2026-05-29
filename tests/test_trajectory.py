@@ -18,15 +18,15 @@ SCENE_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..",
 
 # Object parameters from scene.xml
 OBJ_PARAMS = {
-    "obj_cube": {"type": "cube", "pos": np.array([0.3, 0.1, 0.83]),
-                 "size": {"half_size": 0.02}},
-    "obj_sphere": {"type": "sphere", "pos": np.array([0.5, -0.1, 0.815]),
-                   "size": {"radius": 0.025}},
-    "obj_cylinder": {"type": "cylinder", "pos": np.array([0.4, 0.2, 0.83]),
-                     "size": {"radius": 0.015, "half_height": 0.03}},
+    "obj_cube": {"type": "cube", "pos": np.array([0.3, 0.1, 0.842]),
+                 "size": {"half_size": 0.03}},
+    "obj_sphere": {"type": "sphere", "pos": np.array([0.5, -0.1, 0.845]),
+                   "size": {"radius": 0.035}},
+    "obj_cylinder": {"type": "cylinder", "pos": np.array([0.4, 0.2, 0.85]),
+                     "size": {"radius": 0.025, "half_height": 0.05}},
 }
 
-TARGET_POS = np.array([0.5, 0.0, 0.83])
+TARGET_POS = np.array([0.5, 0.0, 0.845])
 
 
 def test_quat_conversion():

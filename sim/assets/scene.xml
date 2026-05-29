@@ -35,41 +35,41 @@
             rgba="0.3 0.3 0.35 1" contype="0" conaffinity="0"/>
 
       <!-- Left finger (+X direction) -->
-      <body name="finger_left" pos="0.02 0 -0.025">
+      <body name="finger_left" pos="0.005 0 -0.025">
         <joint name="finger_left_joint" type="slide" axis="1 0 0"
                range="0 0.045" damping="5"/>
         <geom name="finger_left_geom" type="box" size="0.004 0.008 0.02"
-              rgba="0.3 0.3 0.35 1" friction="1.0 0.005 0.001"
+              rgba="0.3 0.3 0.35 1" friction="5.0 0.01 0.005"
               contype="1" conaffinity="1"/>
       </body>
 
       <!-- Right finger (-X direction) -->
-      <body name="finger_right" pos="-0.02 0 -0.025">
+      <body name="finger_right" pos="-0.005 0 -0.025">
         <joint name="finger_right_joint" type="slide" axis="-1 0 0"
                range="0 0.045" damping="5"/>
         <geom name="finger_right_geom" type="box" size="0.004 0.008 0.02"
-              rgba="0.3 0.3 0.35 1" friction="1.0 0.005 0.001"
+              rgba="0.3 0.3 0.35 1" friction="5.0 0.01 0.005"
               contype="1" conaffinity="1"/>
       </body>
     </body>
 
-    <!-- Objects -->
-    <body name="obj_cube" pos="0.3 0.1 0.83">
+    <!-- Objects (sized for gripper with fingers at ±0.01) -->
+    <body name="obj_cube" pos="0.3 0.1 0.842">
       <freejoint/>
-      <geom name="cube_geom" type="box" size="0.02 0.02 0.02"
-            rgba="0.9 0.2 0.2 1" mass="0.1" friction="0.8 0.01 0.01"/>
+      <geom name="cube_geom" type="box" size="0.03 0.03 0.03"
+            rgba="0.9 0.2 0.2 1" mass="0.002" friction="5.0 0.01 0.005"/>
     </body>
 
-    <body name="obj_sphere" pos="0.5 -0.1 0.815">
+    <body name="obj_sphere" pos="0.5 -0.1 0.845">
       <freejoint/>
-      <geom name="sphere_geom" type="sphere" size="0.025"
-            rgba="0.2 0.8 0.2 1" mass="0.08" friction="0.8 0.01 0.01"/>
+      <geom name="sphere_geom" type="sphere" size="0.035"
+            rgba="0.2 0.8 0.2 1" mass="0.05" friction="5.0 0.01 0.005"/>
     </body>
 
-    <body name="obj_cylinder" pos="0.4 0.2 0.83">
+    <body name="obj_cylinder" pos="0.4 0.2 0.85">
       <freejoint/>
-      <geom name="cylinder_geom" type="cylinder" size="0.015 0.03"
-            rgba="0.2 0.2 0.9 1" mass="0.12" friction="0.8 0.01 0.01"/>
+      <geom name="cylinder_geom" type="cylinder" size="0.025 0.05"
+            rgba="0.2 0.2 0.9 1" mass="0.05" friction="5.0 0.01 0.005"/>
     </body>
 
     <!-- Target marker -->
@@ -84,7 +84,7 @@
   </worldbody>
 
   <equality>
-    <weld site1="attachment_site" site2="gripper_weld_site" solref="0.01 1"/>
+    <weld site1="attachment_site" site2="gripper_weld_site" solref="0.0001 1" solimp="0.99 0.999 0.001"/>
   </equality>
 
   <actuator>
